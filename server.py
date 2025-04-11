@@ -2,26 +2,6 @@ import socket
 import os
 import configparser
 
-# Lê o arquivo de configuração
-config = configparser.ConfigParser()
-config.read("config.ini")
-
-TCP_PORT = int(config["SERVER_CONFIG"]["TCP_PORT"])
-UDP_PORT = int(config["SERVER_CONFIG"]["UDP_PORT"])
-FILE_A = config["SERVER_CONFIG"]["FILE_A"]
-FILE_B = config["SERVER_CONFIG"]["FILE_B"]
-
-# Etapa 1 - Negociação via UDP
-udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp_socket.bind(("", UDP_PORT))
-print(f"[UDP] Servidor ouvindo na porta {UDP_PORT}...")
-
-# Etapa 2 - Transferência via TCP
-tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-tcp_socket.bind(("", TCP_PORT))
-tcp_socket.listen(1)
-print(f"[TCP] Servidor ouvindo na porta {TCP_PORT}...")
-
 # Função para lidar com a transferência do arquivo
 def handle_transfer(conn, addr):
     print(f"[TCP] Conexão estabelecida com {addr}")
@@ -32,7 +12,13 @@ def handle_transfer(conn, addr):
     
     if comando.startswith("get,"):
         _, nome_arquivo = comando.split(",")
-        caminho_arquivo = FILE_A if nome_arquivo == "a.txt" else FILE_B
+        
+        if nome_arquivo == "a.txt":
+            caminho_arquivo = FILE_A 
+        elif nome_arquivo == "b.txt":
+            FILE_B
+        else:
+            conn.sen("ERRO: arquivo inválido")
 
         # Verifica se o arquivo existe
         if not os.path.exists(caminho_arquivo):
@@ -64,6 +50,26 @@ def handle_transfer(conn, addr):
         conn.close()
         print("[TCP] Conexão encerrada com o cliente")
 
+# Lê o arquivo de configuração
+config = configparser.ConfigParser()
+config.read("config.ini")
+
+TCP_PORT = int(config["SERVER_CONFIG"]["TCP_PORT"])
+UDP_PORT = int(config["SERVER_CONFIG"]["UDP_PORT"])
+FILE_A = config["SERVER_CONFIG"]["FILE_A"]
+FILE_B = config["SERVER_CONFIG"]["FILE_B"]
+
+# Etapa 1 - Negociação via UDP
+udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp_socket.bind(("", UDP_PORT))
+print(f"[UDP] Servidor ouvindo na porta {UDP_PORT}...")
+
+# Etapa 2 - Transferência via TCP
+tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+tcp_socket.bind(("", TCP_PORT))
+tcp_socket.listen(1)
+print(f"[TCP] Servidor ouvindo na porta {TCP_PORT}...")
+
     
 # Loop principal do servidor
 while True:
@@ -74,10 +80,11 @@ while True:
     
     if mensagem.startswith("REQUEST,TCP,"):
         _, protocolo, nome_arquivo = mensagem.split(",")
-        resposta = f"RESPONSE:{TCP_PORT},{nome_arquivo}"
+        resposta = f"RESPONSE:,TCP,{TCP_PORT},{nome_arquivo}"
         udp_socket.sendto(resposta.encode(), endereco)
         print(f"[UDP] Enviado: {resposta}")
+        conn, addr = tcp_socket.accept()
+        handle_transfer(conn, addr)
+    else:
+        udp_socket.sendto("ERRO")
     
-    # Aguarda conexão TCP
-    conn, addr = tcp_socket.accept()
-    handle_transfer(conn, addr)
