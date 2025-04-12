@@ -2,14 +2,15 @@ import socket
 import os
 import configparser
 import threading
+import time
 
 def handle_transfer(conn, addr):
     print(f"[TCP] Conexão estabelecida com {addr}")
-    
+    conn.settimeout(30)
     # Recebe o comando "get,arquivo"
     mensagem = conn.recv(1024).decode()
     print(f"[TCP] Comando recebido: {mensagem}")
-    comando, nome_arquivo = comando.split(",")
+    comando, nome_arquivo = mensagem.split(",")
     
     if mensagem.startswith("get,") and nome_arquivo in ['a.txt', 'b.txt']:
         
@@ -23,19 +24,25 @@ def handle_transfer(conn, addr):
             print(f"[TCP] {erro}")
             conn.send(erro.encode('utf-8'))
         else:
+        
             # Envia o conteúdo do arquivo em segmentos
             with open(caminho_arquivo, "rb") as f:
                 bytes_enviados = 0
                 while True:
+                    time.sleep(5)
                     dados = f.read(1024)
                     if not dados:
                         break
                     conn.sendall(dados)
+                    print(f"[TCP] {len(dados)} dados enviados para {addr}")
+                    
+                    acks = conn.recv(1024)
                     bytes_enviados += len(dados)
+                    if acks:
+                        print(f"[TCP] {acks.decode()} recebeido de {addr}")
             
-            # Fecha o lado de escrita para sinalizar fim do envio
-            conn.shutdown(socket.SHUT_WR)  # <--- Adicione esta linha
-            print(f"[TCP] Enviado {bytes_enviados} bytes")
+            conn.shutdown(socket.SHUT_WR)
+            print(f"[TCP] Enviado {bytes_enviados} bytes para {addr}")
     else:
         error = "ERROR "
         
@@ -48,12 +55,12 @@ def handle_transfer(conn, addr):
         
     try:
         ack = conn.recv(1024).decode()
-        print(f"[TCP] ACK recebido do cliente: {ack}")
+        print(f"[TCP] ACK recebido do cliente {addr}: {ack}")
     except:
-        print("[TCP] Erro ao receber ACK")
+        print(f"[TCP] Erro ao receber ACK do cliente {addr}")
     finally:
         conn.close()
-        print("[TCP] Conexão encerrada com o cliente")
+        print(f"[TCP] Conexão encerrada com o cliente {addr}")
         
 def handle_connection():
         
@@ -61,13 +68,13 @@ def handle_connection():
         mensagem_codificada, endereco = udp_socket.recvfrom(1024)
         mensagem = mensagem_codificada.decode()
         print(f"[UDP] Recebido de {endereco}: {mensagem}")
-        
+        time.sleep(10)
         
         response = ""
         comando, protocolo, nome_arquivo = mensagem.split(",")
         
         if mensagem.startswith("REQUEST,TCP,") and nome_arquivo in ['a.txt', 'b.txt']:
-            resposta = f"RESPONSE:,TCP,{TCP_PORT},{nome_arquivo}"
+            resposta = f"RESPONSE,TCP,{TCP_PORT},{nome_arquivo}"
             udp_socket.sendto(resposta.encode(), endereco)
             print(f"[UDP] Enviado: {resposta}")
             
@@ -102,12 +109,15 @@ FILE_B = config["SERVER_CONFIG"]["FILE_B"]
 #Socket UDP
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_socket.bind(("0.0.0.0", UDP_PORT))
+
+udp_socket.settimeout(30)
 print(f"[UDP] Servidor ouvindo na porta {UDP_PORT}...")
 
 #Socket TCP
 tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tcp_socket.bind(("0.0.0.0", TCP_PORT))
 tcp_socket.listen(5)
+tcp_socket.settimeout(30)
 print(f"[TCP] Servidor ouvindo na porta {TCP_PORT}...")
 
 
@@ -116,8 +126,7 @@ udp_thread = threading.Thread(target=handle_connection)
 udp_thread.daemon = True
 udp_thread.start()
 
-print("SERIVDOR RODANDO")
-
+print("SERVIDOR RODANDO")
 
 try:
     # Mantém o programa principal em execução

@@ -1,191 +1,170 @@
-# Protocolo de Transferência de Arquivos Personalizado – FTCP (File Transfer Custom Protocol)
-
-O objetivo desse projeto e desenvolver um **servidor de transferência de arquivos** que implemente os protocolos de transporte (TCP e UDP) internamente, mas opere com apenas uma delas por vez – conforme definido num arquivo de configuração. A transferência do arquivo será iniciada por meio de uma negociação via UDP, onde o cliente solicita um dos arquivos disponíveis (a.txt ou b.txt) e informa qual protocolo deseja utilizar. 
-
-Os alunos deverão **implementar o servidor e o cliente** seguindo o protocolo especificado. 
-
-## Descrição do protocolo FTCP
-
-O fluxo de operação é dividido em duas etapas principais. 
-O diagrama ilustra, em alto nível, o fluxo de comunicação entre o cliente e o servidor durante a transferência de um arquivo utilizando o protocolo proposto. 
-
-```mermaid
-%%{init: { 'logLevel': 'debug', 'theme': 'neutral' } }%%
-
-sequenceDiagram
-    autonumber
-    actor C as Cliente
-    participant S as Servidor <br/> FTCP
-
-
-    C->>S: UDP: REQUEST,<PROTOCOLO>,<ARQUIVO> (ex.: a.txt ou b.txt)
-    S->>S: Verifica a configuração
-    S-->>C: UDP: RESPONSE:<TRANSFER_PORT>,<ARQUIVO>
-    
-  
-    %% alt Transferência via TCP
-        C->>S: TCP: Conecta na porta <TRANSFER_PORT> (TCP_PORT)
-        C->>S: TCP: Envia confirmação da solicitação (nome do arquivo)
-        %% loop Envio dos Segmentos
-            S->>C: TCP: Envia segmento
-            C->>S: TCP: Envia ACK para o segmento recebido
-        %% end
-    %% else Transferência via UDP
-    %%     C->>C: Prepara para receber pacotes na porta <TRANSFER_PORT>
-    %%     loop Envio dos Segmentos (sem confirmação)
-    %%         S->>C: UDP: Envia segmento
-    %%     end
-    %% end
-```
-
-Na [primeira etapa](#etapa-1--negociação-inicial-via-udp), a negociação é realizada via UDP: o cliente envia uma mensagem UDP para a porta de negociação do servidor solicitando um arquivo (por exemplo, "REQUEST,TCP,a.txt" ou "REQUEST,TCP,b.txt"). O servidor, ao receber essa solicitação, processa a informação, verifica a existência do arquivo e, então, responde utilizando UDP, informando qual protocolo de transferência será utilizado (TCP ou UDP) e especificando a porta de transferência adequada para o arquivo solicitado.
-
-Na [segunda etapa](#etapa-2--transferência-do-arquivo), ocorre a transferência dos dados. Se a transferência for via UDP, o servidor envia os segmentos do arquivo diretamente para o cliente na porta indicada, sem estabelecer uma conexão prévia; cada segmento pode incluir um cabeçalho com um número de sequência para controle. 
-
-Por outro lado, se a transferência for via TCP, o cliente abre uma conexão TCP com o servidor utilizando a porta definida na negociação. Após o estabelecimento da conexão, o servidor envia os dados em segmentos numerados, e o cliente confirma o recebimento de cada segmento por meio de mensagens de ACK, garantindo, assim, uma transferência de dados confiável.
-
-A seguir segue o detalhe das etapas.
-
-### Etapa 1 – Negociação Inicial via UDP
-
-1. **Solicitação do Cliente:**  
-   O cliente envia uma mensagem UDP para a porta de negociação do servidor (configurada via parâmetro UDP_NEGOTIATION_PORT) com a seguinte estrutura:  
-      
-    ```
-    <COMANDO>,<PROTOCOLO>,<ARQUIVO>
-    ```
-    Onde:
-    - `<COMANDO>` o unico comando dessa etapa e o `REQUEST`, que requisita o a porta para transmissão.
-    - `<PROTOCOLO>` indica a preferência ("TCP") caso o cliente solicite com UDP, o servidor deve retornar um erro (descrito na secao abaixo)
-    - `<ARQUIVO>` pode ser "a.txt" ou "b.txt".
-    - `<DEST_PORT>` (incluso apenas na solicitação UDP) é a porta na qual o cliente deseja receber os dados.
-    
-    - Desse modo para solicitar o arquivo `a.txt` o cliente envia o string, para o servidor
-      ```
-      REQUEST,TCP,a.txt
-      ```
-    <!-- - Se o cliente deseja UDP:  
-      ```
-      REQUEST:UDP,<ARQUIVO>,<DEST_PORT>
-      ``` -->
-    
-
-2. **Resposta do Servidor:**
-   Ao receber a solicitação, o servidor processa a informação, verifica a existência do arquivo solicitado (considerando os caminhos definidos no arquivo de configuração) e responde via UDP com a mensagem
-   
-    ```
-    <COMANDO>,<PROTOCOLO>,<TRANSFER_PORT>,<ARQUIVO>
-    ```
-   
-   Onde:
-   
-    - `<COMANDO>` o unico comando dessa etapa e o `REQUEST`, que requisita o a porta para transmissão.
-      - `ERROR` caso o arquivo não exista ou o cliente solicite a tranferencia em um protocolo diferente do `TCP`
-        - Nesse caso a resposta sera vazia para o `<TRANSFER_PORT>,<ARQUIVO>` (e.g.,`ERROR,PROTOCOLO INVALIDO,,`)
-      - `RESPONSE` caso o protocolo (TCP) e o arquivo seja valido o servidor informa a porta TCP para o cliente solicitar o arquivo.
-    - `<PROTOCOLO>` ecoa a preferência informada pelo cliente (TCP).
-    - `<TRANSFER_PORT>` é determinado da seguinte forma:
-      - Se o protocolo for **TCP**, esse campo contém a porta fixa configurada no servidor para transferência via TCP.
-    - `<ARQUIVO>` indica novamente o arquivo solicitado.
-
-    Exemplos,
-
-    Solicitação correta
-    ```mermaid
-    %%{init: { 'logLevel': 'debug', 'theme': 'neutral' } }%%
-
-    sequenceDiagram
-        autonumber
-        actor C as Cliente
-        participant S as Servidor <br/> FTCP
-
-        %% Etapa 1 – Negociação Inicial via UDP
-        C->>S:  UDP: REQUEST,TCP,a.txt
-        S-->>C: UDP: RESPONSE,TCP,5001,a.txt
-    ```
-
-    Solicitação invalida
-    ```mermaid
-    %%{init: { 'logLevel': 'debug', 'theme': 'neutral' } }%%
-
-    sequenceDiagram
-        autonumber
-        actor C as Cliente
-        participant S as Servidor <br/> FTCP
-
-        %% Etapa 1 – Negociação Inicial via UDP
-        C->>S:  UDP: REQUEST,UDP,a.txt
-        S-->>C: UDP: ERROR,PROTOCOLO INVALIDO,,
-    ```
-
-Após essa etapa o cliente solicitará a transferência de dados([Etapa 2](#etapa-2--transferência-dos-dados)). 
-
-### Etapa 2 – Transferência dos Dados
-Após a negociação, o cliente utiliza o protocolo e a porta determinados para efetuar a transferência e receber o arquivo:
-
-1. **Estabelecimento de Conexão:**  
-  O cliente abre uma conexão TCP com o servidor utilizando a porta fixa indicada na resposta (por exemplo, TCP_PORT definido na configuração).
-
-2. **Solicitação do Arquivo:**  
-  Após estabelecer a conexão, o cliente envia o comando para solicitar o arquivo:
-  
-      get,arquivo
-  
-    Por exemplo:
-    
-        get,a.txt
-
-3. **Envio dos Dados:**  
-  O servidor, ao receber o comando, lê o conteúdo do arquivo solicitado e envia os dados através da conexão TCP.  
-  A transferência dos dados pode ser realizada de forma contínua ou em segmentos, conforme a implementação.
-
-- **Confirmação pelo Cliente (ACK):**  Assim que o cliente recebe todo o arquivo, ele identifica o total de bytes recebidos e envia uma mensagem de confirmação para o servidor:
-  
-      ftcp_ack,numero_de_bytes
-  
-  Por exemplo, para um arquivo com 10240 bytes:
-  
-      ftcp_ack,10240
-
-4. **Encerramento da Conexão:**  Após enviar a confirmação, o cliente encerra a conexão TCP.
-
-#### Diagrama da trânsferencia 
-
-O diagrama abaixo ilistra o funcionamento desse protocolo.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor C as Cliente
-    participant S as Servidor
-
-    %% Etapa 2 – Transferência dos Dados via TCP
-    C->>S: TCP: Conectar (na porta TCP_PORT)
-    C->>S: TCP: get,a.txt
-    S-->>C: TCP: Envia conteúdo do arquivo
-    C->>S: TCP: fcp_ack,10240
-    C->>S: TCP: Encerra conexão
-```
-
-## Sobre o servidor 
-
-O servidor utiliza um arquivo de configuração (`config.ini`), localizado na mesma pasta do script, com os seguintes parâmetros:
-
-<!-- - **TRANSFER_PROTOCOL:** Define a stack de transferência a ser utilizada por padrão (o servidor validará o pedido do cliente e poderá seguir a preferência informada).   -->
-- **TCP_PORT:** Porta fixa para transferência via TCP.  
-- **UDP_PORT:** Porta para negociação via UDP.  
-- **FILE_A:** Caminho para o arquivo a.txt.  
-- **FILE_B:** Caminho para o arquivo b.txt.  
-<!-- - **WINDOW_SIZE:** (apenas para TCP) Tamanho da janela de transmissão para o mecanismo de controle, que define quantos segmentos podem ser enviados antes de aguardar confirmações. -->
-
-Um exemplo de conteúdo do arquivo pode ser:
-
-```ini
-[SERVER_CONFIG]
-TCP_PORT = 5001
-UDP_PORT = 5002
-FILE_A = a.txt
-FILE_B = b.txt
-```
-
-Cada grupo poderá editar o conteúdo de `a.txt` ou `b.txt` para personalizar a mensagem em ASCII que será transferida. Esse arquivos personalizados devem estar no repositorio do grupo. Onde o arquivo `a.txt` deve conter uma frase curta e o arquivo `b.txt` deve ter entre 4KB e 10KB.
+#FAROESTE CABLOCO
+Não tinha medo o tal João de Santo Cristo
+Era o que todos diziam quando ele se perdeu
+Deixou pra trás todo o marasmo da fazenda
+Só pra sentir no seu sangue o ódio que Jesus lhe deu
+Quando criança, só pensava em ser bandido
+Ainda mais quando com um tiro de soldado o pai morreu
+Era o terror da sertania onde morava
+E na escola até o professor com ele aprendeu
+Ia pra igreja só pra roubar o dinheiro
+Que as velhinhas colocavam na caixinha do altar
+Sentia mesmo que era mesmo diferente
+Sentia que aquilo ali não era o seu lugar
+Ele queria sair para ver o mar
+E as coisas que ele via na televisão
+Juntou dinheiro para poder viajar
+De escolha própria, escolheu a solidão
+Comia todas as menininhas da cidade
+De tanto brincar de médico, aos doze, era professor
+Aos quinze, foi mandado pro reformatório
+Onde aumentou seu ódio diante de tanto terror
+Não entendia como a vida funcionava
+Discriminação por causa da sua classe e sua cor
+Ficou cansado de tentar achar resposta
+E comprou uma passagem, foi direto a Salvador
+E lá chegando, foi tomar um cafezinho
+E encontrou um boiadeiro com quem foi falar
+E o boiadeiro tinha uma passagem e ia perder a viagem
+Mas João foi lhe salvar
+Dizia ele: Estou indo pra Brasília
+Neste país lugar melhor não há
+Tô precisando visitar a minha filha
+Eu fico aqui e você vai no meu lugar
+E João aceitou sua proposta
+E num ônibus entrou no Planalto Central
+Ele ficou bestificado com a cidade
+Saindo da rodoviária, viu as luzes de Natal
+Meu Deus, mas que cidade linda
+No Ano Novo eu começo a trabalhar
+Cortar madeira, aprendiz de carpinteiro
+Ganhava cem mil por mês em Taguatinga
+Na sexta-feira, ia pra zona da cidade
+Gastar todo o seu dinheiro de rapaz trabalhador
+E conhecia muita gente interessante
+Até um neto bastardo do seu bisavô
+Um peruano que vivia na Bolívia
+E muitas coisas trazia de lá
+Seu nome era Pablo e ele dizia
+Que um negócio ele ia começar
+E Santo Cristo até a morte trabalhava
+Mas o dinheiro não dava pra ele se alimentar
+E ouvia às sete horas o noticiário
+Que sempre dizia que o seu ministro ia ajudar
+Mas ele não queria mais conversa
+E decidiu que, como Pablo, ele iria se virar
+Elaborou mais uma vez seu plano santo
+E, sem ser crucificado, a plantação foi começar
+Logo, logo os malucos da cidade souberam da novidade
+Tem bagulho bom aí
+E João de Santo Cristo ficou rico
+E acabou com todos os traficantes dali
+Fez amigos, frequentava a Asa Norte
+E ia pra festa de rock pra se libertar
+Mas de repente, sob uma má influência
+Dos boyzinhos da cidade, começou a roubar
+Já no primeiro roubo ele dançou
+E pro inferno ele foi pela primeira vez
+Violência e estupro do seu corpo
+Vocês vão ver, eu vou pegar vocês
+Agora o Santo Cristo era bandido
+Destemido e temido no Distrito Federal
+Não tinha nenhum medo de polícia
+Capitão ou traficante, playboy ou general
+Foi quando conheceu uma menina
+E de todos os seus pecados ele se arrependeu
+Maria Lúcia era uma menina linda
+E o coração dele pra ela o Santo Cristo prometeu
+Ele dizia que queria se casar
+E carpinteiro ele voltou a ser
+Maria Lúcia, pra sempre vou te amar
+E um filho com você eu quero ter
+O tempo passa e um dia vem na porta
+Um senhor de alta classe com dinheiro na mão
+E ele faz uma proposta indecorosa
+E diz que espera uma resposta
+Uma resposta do João
+Não boto bomba em banca de jornal
+Nem em colégio de criança, isso eu não faço, não
+E não protejo general de dez estrelas
+Que fica atrás da mesa com o cu na mão
+E é melhor o senhor sair da minha casa
+Nunca brinque com um Peixes de ascendente Escorpião
+Mas antes de sair, com ódio no olhar, o velho disse
+Você perdeu sua vida, meu irmão
+Você perdeu a sua vida, meu irmão
+Você perdeu a sua vida, meu irmão
+Essas palavras vão entrar no coração
+Eu vou sofrer as consequências como um cão
+Não é que o Santo Cristo estava certo?
+Seu futuro era incerto e ele não foi trabalhar
+Se embebedou e no meio da bebedeira
+Descobriu que tinha outro trabalhando em seu lugar
+Falou com Pablo que queria um parceiro
+E também tinha dinheiro e queria se armar
+Pablo trazia o contrabando da Bolívia
+E Santo Cristo revendia em Planaltina
+Mas acontece que um tal de Jeremias
+Traficante de renome, apareceu por lá
+Ficou sabendo dos planos de Santo Cristo
+E decidiu que com João ele ia acabar
+Mas Pablo trouxe uma Winchester 22
+E Santo Cristo já sabia atirar
+E decidiu usar a arma só depois
+Que Jeremias começasse a brigar
+Jeremias, maconheiro sem-vergonha
+Organizou a Rockonha e fez todo mundo dançar
+Desvirginava mocinhas inocentes
+Se dizia que era crente, mas não sabia rezar
+E Santo Cristo há muito não ia pra casa
+E a saudade começou a apertar
+Eu vou-me embora, eu vou ver Maria Lúcia
+Já tá em tempo de a gente se casar
+Chegando em casa, então, ele chorou
+E pro inferno ele foi pela segunda vez
+Com Maria Lúcia, Jeremias se casou
+E um filho nela ele fez
+Santo Cristo era só ódio por dentro
+E então o Jeremias pra um duelo ele chamou
+Amanhã, às duas horas, na Ceilândia
+Em frente ao lote catorze, e é pra lá que eu vou
+E você pode escolher as suas armas
+Que eu acabo mesmo com você, seu porco traidor
+E mato também Maria Lúcia
+Aquela menina falsa pra quem jurei o meu amor
+E o Santo Cristo não sabia o que fazer
+Quando viu o repórter da televisão
+Que deu notícia do duelo na TV
+Dizendo a hora, e o local e a razão
+No sábado, então, às duas horas
+Todo o povo, sem demora, foi lá só para assistir
+Um homem que atirava pelas costas
+E acertou o Santo Cristo e começou a sorrir
+Sentindo o sangue na garganta
+João olhou pras bandeirinhas e pro povo a aplaudir
+E olhou pro sorveteiro e pras câmeras
+E a gente da TV que filmava tudo ali
+E se lembrou de quando era uma criança
+E de tudo o que vivera até ali
+E decidiu entrar de vez naquela dança
+Se a Via-Crúcis virou circo, estou aqui
+E nisso, o Sol cegou seus olhos
+E então Maria Lúcia ele reconheceu
+Ela trazia a Winchester 22
+A arma que seu primo Pablo lhe deu
+Jeremias, eu sou homem, coisa que você não é
+E não atiro pelas costas, não
+Olha pra cá, filha da puta sem-vergonha
+Dá uma olhada no meu sangue e vem sentir o teu perdão
+E Santo Cristo, com a Winchester 22
+Deu cinco tiros no bandido traidor
+Maria Lúcia se arrependeu depois
+E morreu junto com João, seu protetor
+O povo declarava que João de Santo Cristo
+Era santo porque sabia morrer
+E a alta burguesia da cidade
+Não acreditou na história que eles viram na TV
+E João não conseguiu o que queria
+Quando veio pra Brasília com o diabo ter
+Ele queria era falar pro presidente
+Pra ajudar toda essa gente que só faz
