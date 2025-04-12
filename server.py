@@ -3,24 +3,20 @@ import os
 import configparser
 import threading
 
-# Função para lidar com a transferência do arquivo
 def handle_transfer(conn, addr):
     print(f"[TCP] Conexão estabelecida com {addr}")
     
     # Recebe o comando "get,arquivo"
-    comando = conn.recv(1024).decode()
-    print(f"[TCP] Comando recebido: {comando}")
+    mensagem = conn.recv(1024).decode()
+    print(f"[TCP] Comando recebido: {mensagem}")
+    comando, nome_arquivo = comando.split(",")
     
-    if comando.startswith("get,"):
-        _, nome_arquivo = comando.split(",")
+    if mensagem.startswith("get,") and nome_arquivo in ['a.txt', 'b.txt']:
         
         if nome_arquivo == "a.txt":
             caminho_arquivo = FILE_A 
-        elif nome_arquivo == "b.txt":
-            FILE_B
         else:
-            conn.sen("ERRO: arquivo inválido")
-
+            caminho_arquivo = FILE_B
         # Verifica se o arquivo existe
         if not os.path.exists(caminho_arquivo):
             erro = "Erro: arquivo não encontrado."
@@ -40,7 +36,16 @@ def handle_transfer(conn, addr):
             # Fecha o lado de escrita para sinalizar fim do envio
             conn.shutdown(socket.SHUT_WR)  # <--- Adicione esta linha
             print(f"[TCP] Enviado {bytes_enviados} bytes")
-
+    else:
+        error = "ERROR "
+        
+        if comando != 'get':
+            error += "COMANDO INVÁLIDO"
+        elif nome_arquivo not in ['a.txt', 'b.txt']:
+            error += "ARQUIVO INVÁLIDO"    
+        print(f"[TCP] ERROR Enviado para {addr}: {error}")
+        conn.send(error.encode())
+        
     try:
         ack = conn.recv(1024).decode()
         print(f"[TCP] ACK recebido do cliente: {ack}")
@@ -66,10 +71,10 @@ def handle_connection():
             udp_socket.sendto(resposta.encode(), endereco)
             print(f"[UDP] Enviado: {resposta}")
             
-            conn, addr = tcp_socket.accept()
+            conn, endereco_tcp = tcp_socket.accept()
             
             #Thread TCP
-            tcp_thread = threading.Thread(target=handle_transfer,  args=(conn, addr))
+            tcp_thread = threading.Thread(target=handle_transfer,  args=(conn, endereco_tcp))
             tcp_thread.daemon = True
             tcp_thread.start()
                     
