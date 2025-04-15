@@ -5,7 +5,7 @@ import threading
 import time
 
     
-def validar_requisicao_tcp(mensagem):
+def validar_requisicao_tcp(mensagem, conn):
     
     mensagem = mensagem.split(",")
     
@@ -20,7 +20,7 @@ def validar_requisicao_tcp(mensagem):
         raise ValueError("[TCP] ERROR | ARQUIVO INVÁLIDO")
     
     if not os.path.exists(nome_arquivo):
-        raise ValueError("[TCP] ERROR | Erro no servidor, arquivo não existe")
+        raise ValueError("[TCP] ERROR | Erro no servidor, arquivo não existe!")
         
     return True
     
@@ -56,14 +56,15 @@ def handle_transfer(conn, addr):
         print(f"[TCP] Comando recebido: {mensagem} de {addr}")
         
         try:
-            if validar_requisicao_tcp(mensagem):       
+            if validar_requisicao_tcp(mensagem, conn):       
                 comando, arquivo = mensagem.split(",")
                 # Envia o conteúdo do arquivo em segmentos
                 enviar_dados(conn, addr, arquivo)
                 receber_ack(conn, addr)
                             
         except ValueError as e:
-            conn.sendall(e)
+            print(f"[TCP] ERROR | Erro: {e}")
+            conn.sendall(str(e).encode("utf-8"))
         except (ConnectionResetError, ConnectionAbortedError) as e:
             print(f"[TCP] Conexão com {addr} encerrada durante envio: {e}")
         

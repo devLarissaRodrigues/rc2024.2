@@ -13,7 +13,7 @@ def validar_resposta_servidor(resposta):
 def iniciar_conexao():
     # Negociação via UDP
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
-        udp_socket.settimeout(1)
+        udp_socket.settimeout(10)
         try:
             #Envia a requisição
             mensagem = f"REQUEST,TCP,{arquivo_desejado}"
@@ -43,7 +43,7 @@ def receber_dados(porta_transferencia):
     
     # Transferência via TCP
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
-        tcp_socket.settimeout(1)
+        tcp_socket.settimeout(10)
         try:
             
             tcp_socket.connect((servidor, porta_transferencia))
@@ -59,6 +59,11 @@ def receber_dados(porta_transferencia):
                 dados = tcp_socket.recv(1024)
                 if not dados:
                     break
+                
+                if dados.decode().startswith("[TCP] ERROR"):
+                    print(dados.decode())
+                    return
+                
                 print(f"Recebido {len(dados)} bytes")
                 conteudo += dados
 
@@ -78,9 +83,11 @@ def receber_dados(porta_transferencia):
         except socket.timeout as e:
             print(f"[TCP] ERRO | TIMEOUT: {e}")
         except ConnectionRefusedError as e:
-            print(f"[TCP] ERRO |Conexão recusada {e}")
+            print(f"[TCP] ERRO | Conexão recusada {e}")
         except Exception as e:
-            print(f"[TCP] ERRO | ")
+            print(f"[TCP] ERRO | Erro inesperado {e}")
+        except (ConnectionResetError, ConnectionAbortedError) as e:
+            print(f"[TCP] Conexão com {addr} encerrada durante envio: {e}")
 
     print("[TCP] Conexão encerrada.")
 
